@@ -64,6 +64,36 @@ bool SudokuSolver::isValid(int row, int col, int value) const {
     return !isInRow(row, value) && !isInCol(col, value) && !isInBlock(row, col, value);
 }
 
+// Check if placing value at (row, col) is valid with a specific board
+bool SudokuSolver::isValidWithBoard(const std::vector<int>& boardRef, int row, int col, int value) const {
+    // Check row
+    for (int c = 0; c < N; ++c) {
+        if (boardRef[row * N + c] == value) {
+            return false;
+        }
+    }
+    
+    // Check column
+    for (int r = 0; r < N; ++r) {
+        if (boardRef[r * N + col] == value) {
+            return false;
+        }
+    }
+    
+    // Check block
+    int blockRow = (row / blockSize) * blockSize;
+    int blockCol = (col / blockSize) * blockSize;
+    for (int r = blockRow; r < blockRow + blockSize; ++r) {
+        for (int c = blockCol; c < blockCol + blockSize; ++c) {
+            if (boardRef[r * N + c] == value) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
+}
+
 // Find next empty cell
 bool SudokuSolver::findNextEmptyCell(int& row, int& col) const {
     for (row = 0; row < N; ++row) {
@@ -115,9 +145,9 @@ int SudokuSolver::backtrackSingleThread(int pos) {
 }
 
 // Solve from a given state (used by parallel solver)
-int SudokuSolver::solveFromState(std::vector<int> boardCopy, int pos) {
+int SudokuSolver::solveFromState(const std::vector<int>& boardRef, int pos) {
     // If we've filled all cells, we found a solution
-    if (pos == boardCopy.size()) {
+    if (pos == static_cast<int>(boardRef.size())) {
         return 1;
     }
     
@@ -125,49 +155,15 @@ int SudokuSolver::solveFromState(std::vector<int> boardCopy, int pos) {
     int col = pos % N;
     
     // Skip already filled cells
-    if (boardCopy[getIndex(row, col)] != 0) {
-        return solveFromState(boardCopy, pos + 1);
+    if (boardRef[getIndex(row, col)] != 0) {
+        return solveFromState(boardRef, pos + 1);
     }
     
     int count = 0;
     for (int value = 1; value <= N; ++value) {
-        // Check validity using boardCopy
-        bool valid = true;
-        
-        // Check row
-        for (int c = 0; c < N; ++c) {
-            if (boardCopy[row * N + c] == value) {
-                valid = false;
-                break;
-            }
-        }
-        
-        // Check column
-        if (valid) {
-            for (int r = 0; r < N; ++r) {
-                if (boardCopy[r * N + col] == value) {
-                    valid = false;
-                    break;
-                }
-            }
-        }
-        
-        // Check block
-        if (valid) {
-            int blockRow = (row / blockSize) * blockSize;
-            int blockCol = (col / blockSize) * blockSize;
-            for (int r = blockRow; r < blockRow + blockSize; ++r) {
-                for (int c = blockCol; c < blockCol + blockSize; ++c) {
-                    if (boardCopy[r * N + c] == value) {
-                        valid = false;
-                        break;
-                    }
-                }
-                if (!valid) break;
-            }
-        }
-        
-        if (valid) {
+        if (isValidWithBoard(boardRef, row, col, value)) {
+            // Create a copy only when we need to modify
+            std::vector<int> boardCopy = boardRef;
             boardCopy[getIndex(row, col)] = value;
             count += solveFromState(boardCopy, pos + 1);
         }

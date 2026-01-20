@@ -19,10 +19,11 @@ private:
     bool isInCol(int col, int value) const;
     bool isInBlock(int row, int col, int value) const;
     bool isValid(int row, int col, int value) const;
+    bool isValidWithBoard(const std::vector<int>& boardRef, int row, int col, int value) const;
     bool findNextEmptyCell(int& row, int& col) const;
     std::set<int> getPossibleValues(int row, int col) const;
     int backtrackSingleThread(int pos);
-    int solveFromState(std::vector<int> boardCopy, int pos);
+    int solveFromState(const std::vector<int>& boardRef, int pos);
 
 public:
     // Constructor
