@@ -147,7 +147,7 @@ int SudokuSolver::backtrackSingleThread(int pos) {
 // Solve from a given state (used by parallel solver)
 int SudokuSolver::solveFromState(const std::vector<int>& boardRef, int pos) {
     // If we've filled all cells, we found a solution
-    if (pos == static_cast<int>(boardRef.size())) {
+    if (pos == N * N) {
         return 1;
     }
     
@@ -217,10 +217,11 @@ void SudokuSolver::solveParallel(int numThreads) {
     std::vector<int> valuesList(possibleValues.begin(), possibleValues.end());
     
     int totalSolutions = 0;
+    int numValues = static_cast<int>(valuesList.size());
     
     // Parallel loop over possible values
     #pragma omp parallel for reduction(+:totalSolutions)
-    for (size_t i = 0; i < valuesList.size(); ++i) {
+    for (int i = 0; i < numValues; ++i) {
         int value = valuesList[i];
         
         // Create a copy of the board for this thread

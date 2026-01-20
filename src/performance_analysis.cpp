@@ -59,6 +59,9 @@ void generatePerformanceReport() {
         // Get appropriate test board
         if (N == 9) {
             board = getHardTestBoard9x9();
+        } else {
+            std::cerr << "Warning: No test board available for " << N << "x" << N << " board, skipping...\n";
+            continue;
         }
         
         std::cout << "Testing " << N << "x" << N << " board...\n";
