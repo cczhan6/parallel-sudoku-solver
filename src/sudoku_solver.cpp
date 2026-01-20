@@ -7,6 +7,13 @@
 // Constructor
 SudokuSolver::SudokuSolver(int N) : N(N), numSolutions(0), runningTime(0.0) {
     blockSize = static_cast<int>(sqrt(N));
+    
+    // Validate that N is a perfect square
+    if (blockSize * blockSize != N) {
+        std::cerr << "Warning: N=" << N << " is not a perfect square. "
+                  << "Sudoku constraints may not work correctly." << std::endl;
+    }
+    
     board.resize(N * N, 0);
 }
 
@@ -163,6 +170,9 @@ int SudokuSolver::solveFromState(const std::vector<int>& boardRef, int pos) {
     for (int value = 1; value <= N; ++value) {
         if (isValidWithBoard(boardRef, row, col, value)) {
             // Create a copy only when we need to modify
+            // Note: This copy-per-recursion approach is necessary for thread safety
+            // in the parallel solver, as each thread needs its own independent board state.
+            // While memory-intensive, it ensures correctness in parallel execution.
             std::vector<int> boardCopy = boardRef;
             boardCopy[getIndex(row, col)] = value;
             count += solveFromState(boardCopy, pos + 1);
