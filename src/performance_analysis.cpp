@@ -7,7 +7,9 @@
 // Structure to store performance results
 struct PerformanceResult {
     int boardSize;
+    std::string strategy;
     int numThreads;
+    int partitionDepth;
     int numSolutions;
     double executionTime;
     double speedup;
@@ -49,6 +51,7 @@ void generatePerformanceReport() {
     std::vector<PerformanceResult> results;
     std::vector<int> boardSizes = {9};  // Can extend to 16, 25 for larger boards
     std::vector<int> threadCounts = {1, 2, 4, 8};
+    std::vector<int> partitionDepths = {1, 2, 3};
     
     std::cout << "Performance Analysis for Parallel Sudoku Solver\n";
     std::cout << "===============================================\n\n";
@@ -68,32 +71,83 @@ void generatePerformanceReport() {
         
         double baselineTime = 0.0;
         
-        for (int threads : threadCounts) {
+        // Test single thread baseline
+        {
             SudokuSolver solver(N);
             solver.loadBoard(board);
-            
-            if (threads == 1) {
-                solver.solveSingleThread();
-                baselineTime = solver.getRunningTime();
-            } else {
-                solver.solveParallel(threads);
-            }
+            solver.solveSingleThread();
+            baselineTime = solver.getRunningTime();
             
             PerformanceResult result;
             result.boardSize = N;
+            result.strategy = "Baseline";
+            result.numThreads = 1;
+            result.partitionDepth = 0;
+            result.numSolutions = solver.getNumSolutions();
+            result.executionTime = solver.getRunningTime();
+            result.speedup = 1.0;
+            result.efficiency = 100.0;
+            results.push_back(result);
+            
+            std::cout << "  [Baseline] Threads: 1, Time: " << std::fixed << std::setprecision(2) 
+                     << result.executionTime << " ms\n";
+        }
+        
+        // Test old parallel strategy
+        std::cout << "\n  Testing OLD strategy (first cell only):\n";
+        for (int threads : threadCounts) {
+            if (threads == 1) continue;
+            
+            SudokuSolver solver(N);
+            solver.loadBoard(board);
+            solver.solveParallel(threads);
+            
+            PerformanceResult result;
+            result.boardSize = N;
+            result.strategy = "Old";
             result.numThreads = threads;
+            result.partitionDepth = 1;
             result.numSolutions = solver.getNumSolutions();
             result.executionTime = solver.getRunningTime();
             result.speedup = (baselineTime > 0) ? (baselineTime / result.executionTime) : 1.0;
             result.efficiency = (result.speedup / threads) * 100.0;
-            
             results.push_back(result);
             
-            std::cout << "  Threads: " << threads 
+            std::cout << "    Threads: " << threads 
                      << ", Time: " << std::fixed << std::setprecision(2) 
                      << result.executionTime << " ms"
-                     << ", Speedup: " << result.speedup << "x"
-                     << ", Efficiency: " << result.efficiency << "%\n";
+                     << ", Speedup: " << std::setprecision(2) << result.speedup << "x"
+                     << ", Efficiency: " << std::setprecision(1) << result.efficiency << "%\n";
+        }
+        
+        // Test optimized parallel strategy with different partition depths
+        std::cout << "\n  Testing OPTIMIZED strategy (K-level partitioning):\n";
+        for (int depth : partitionDepths) {
+            std::cout << "    Partition Depth = " << depth << ":\n";
+            for (int threads : threadCounts) {
+                if (threads == 1) continue;
+                
+                SudokuSolver solver(N);
+                solver.loadBoard(board);
+                solver.solveParallelOptimized(threads, depth);
+                
+                PerformanceResult result;
+                result.boardSize = N;
+                result.strategy = "Optimized";
+                result.numThreads = threads;
+                result.partitionDepth = depth;
+                result.numSolutions = solver.getNumSolutions();
+                result.executionTime = solver.getRunningTime();
+                result.speedup = (baselineTime > 0) ? (baselineTime / result.executionTime) : 1.0;
+                result.efficiency = (result.speedup / threads) * 100.0;
+                results.push_back(result);
+                
+                std::cout << "      Threads: " << threads 
+                         << ", Time: " << std::fixed << std::setprecision(2) 
+                         << result.executionTime << " ms"
+                         << ", Speedup: " << std::setprecision(2) << result.speedup << "x"
+                         << ", Efficiency: " << std::setprecision(1) << result.efficiency << "%\n";
+            }
         }
         std::cout << "\n";
     }
@@ -101,11 +155,13 @@ void generatePerformanceReport() {
     // Write results to CSV file
     std::ofstream csvFile("performance_results.csv");
     if (csvFile.is_open()) {
-        csvFile << "Board Size,Threads,Solutions,Execution Time (ms),Speedup,Efficiency (%)\n";
+        csvFile << "Board Size,Strategy,Threads,Partition Depth,Solutions,Execution Time (ms),Speedup,Efficiency (%)\n";
         
         for (const auto& result : results) {
             csvFile << result.boardSize << ","
+                   << result.strategy << ","
                    << result.numThreads << ","
+                   << result.partitionDepth << ","
                    << result.numSolutions << ","
                    << std::fixed << std::setprecision(2) << result.executionTime << ","
                    << std::fixed << std::setprecision(4) << result.speedup << ","
@@ -120,10 +176,14 @@ void generatePerformanceReport() {
     
     // Print summary
     std::cout << "\n=== Performance Summary ===\n";
-    std::cout << "The parallel implementation shows speedup with increasing thread counts.\n";
-    std::cout << "Efficiency indicates how well the parallel resources are utilized.\n";
-    std::cout << "Speedup = Single-thread time / Multi-thread time\n";
-    std::cout << "Efficiency = (Speedup / Number of threads) * 100%\n";
+    std::cout << "The optimized implementation uses K-level partitioning to create more\n";
+    std::cout << "fine-grained subproblems, improving load balancing and parallel efficiency.\n";
+    std::cout << "\n";
+    std::cout << "Key improvements:\n";
+    std::cout << "1. Bitmask-based constraint checking (faster validation)\n";
+    std::cout << "2. K-level task partitioning (better parallelism)\n";
+    std::cout << "3. Dynamic scheduling (better load balancing)\n";
+    std::cout << "4. Reduced memory copying overhead\n";
 }
 
 int main() {

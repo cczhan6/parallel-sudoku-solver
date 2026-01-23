@@ -4,6 +4,33 @@
 #include <algorithm>
 #include <omp.h>
 
+// BitMaskState implementation
+BitMaskState::BitMaskState(int N) {
+    rowMask.resize(N, 0);
+    colMask.resize(N, 0);
+    blockMask.resize(N, 0);
+}
+
+void BitMaskState::set(int N, int blockSize, int row, int col, int value) {
+    int blockIdx = (row / blockSize) * blockSize + (col / blockSize);
+    rowMask[row] |= (1u << value);
+    colMask[col] |= (1u << value);
+    blockMask[blockIdx] |= (1u << value);
+}
+
+void BitMaskState::unset(int N, int blockSize, int row, int col, int value) {
+    int blockIdx = (row / blockSize) * blockSize + (col / blockSize);
+    rowMask[row] &= ~(1u << value);
+    colMask[col] &= ~(1u << value);
+    blockMask[blockIdx] &= ~(1u << value);
+}
+
+bool BitMaskState::canPlace(int N, int blockSize, int row, int col, int value) const {
+    int blockIdx = (row / blockSize) * blockSize + (col / blockSize);
+    uint32_t mask = (1u << value);
+    return !(rowMask[row] & mask) && !(colMask[col] & mask) && !(blockMask[blockIdx] & mask);
+}
+
 // Constructor
 SudokuSolver::SudokuSolver(int N) : N(N), numSolutions(0), runningTime(0.0) {
     blockSize = static_cast<int>(sqrt(N));
@@ -294,4 +321,142 @@ void SudokuSolver::printBoard() const {
         std::cout << "\n";
     }
     std::cout << "\n";
+}
+
+// Optimized backtracking with bitmask for validation
+int SudokuSolver::backtrackWithBitmask(std::vector<int>& boardRef, BitMaskState& state, int pos) {
+    // If we've filled all cells, we found a solution
+    if (pos == N * N) {
+        return 1;
+    }
+    
+    int row = pos / N;
+    int col = pos % N;
+    
+    // Skip already filled cells
+    if (boardRef[getIndex(row, col)] != 0) {
+        return backtrackWithBitmask(boardRef, state, pos + 1);
+    }
+    
+    int count = 0;
+    for (int value = 1; value <= N; ++value) {
+        if (state.canPlace(N, blockSize, row, col, value)) {
+            boardRef[getIndex(row, col)] = value;
+            state.set(N, blockSize, row, col, value);
+            
+            count += backtrackWithBitmask(boardRef, state, pos + 1);
+            
+            boardRef[getIndex(row, col)] = 0;
+            state.unset(N, blockSize, row, col, value);
+        }
+    }
+    
+    return count;
+}
+
+// Solve a subproblem (used by optimized parallel solver)
+int SudokuSolver::solveSubproblem(const Subproblem& subproblem) {
+    std::vector<int> boardCopy = subproblem.board;
+    BitMaskState stateCopy = subproblem.state;
+    return backtrackWithBitmask(boardCopy, stateCopy, subproblem.startPos);
+}
+
+// Recursively generate subproblems by filling K empty cells
+void SudokuSolver::generateSubproblemsRecursive(Subproblem& current, int depth, int maxDepth,
+                                               std::vector<Subproblem>& results) {
+    if (depth == maxDepth) {
+        results.push_back(current);
+        return;
+    }
+    
+    // Find next empty cell
+    int pos = current.startPos;
+    while (pos < N * N && current.board[pos] != 0) {
+        pos++;
+    }
+    
+    if (pos >= N * N) {
+        // No more empty cells, add current state
+        results.push_back(current);
+        return;
+    }
+    
+    int row = pos / N;
+    int col = pos % N;
+    
+    // Try all valid values for this cell
+    bool foundAny = false;
+    for (int value = 1; value <= N; ++value) {
+        if (current.state.canPlace(N, blockSize, row, col, value)) {
+            foundAny = true;
+            
+            // Create a new subproblem with this value
+            Subproblem next = current;
+            next.board[pos] = value;
+            next.state.set(N, blockSize, row, col, value);
+            next.startPos = pos + 1;
+            
+            generateSubproblemsRecursive(next, depth + 1, maxDepth, results);
+        }
+    }
+    
+    // If no valid values found, this branch is invalid
+    if (!foundAny && depth < maxDepth) {
+        // Dead end, don't add to results
+        return;
+    }
+}
+
+// Generate subproblems for parallel execution
+void SudokuSolver::generateSubproblems(int partitionDepth, std::vector<Subproblem>& subproblems) {
+    Subproblem initial(N);
+    initial.board = board;
+    initial.startPos = 0;
+    
+    // Initialize bitmask with existing values
+    for (int row = 0; row < N; ++row) {
+        for (int col = 0; col < N; ++col) {
+            int value = board[getIndex(row, col)];
+            if (value != 0) {
+                initial.state.set(N, blockSize, row, col, value);
+            }
+        }
+    }
+    
+    generateSubproblemsRecursive(initial, 0, partitionDepth, subproblems);
+}
+
+// Optimized parallel solver with configurable partition depth
+void SudokuSolver::solveParallelOptimized(int numThreads, int partitionDepth) {
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    omp_set_num_threads(numThreads);
+    
+    // Generate subproblems
+    std::vector<Subproblem> subproblems;
+    generateSubproblems(partitionDepth, subproblems);
+    
+    if (subproblems.empty()) {
+        numSolutions = 0;
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> duration = end - start;
+        runningTime = duration.count();
+        return;
+    }
+    
+    int totalSolutions = 0;
+    int numSubproblems = static_cast<int>(subproblems.size());
+    
+    // Parallel loop over subproblems
+    #pragma omp parallel for reduction(+:totalSolutions) schedule(dynamic)
+    for (int i = 0; i < numSubproblems; ++i) {
+        int solutions = solveSubproblem(subproblems[i]);
+        totalSolutions += solutions;
+    }
+    
+    numSolutions = totalSolutions;
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+    runningTime = duration.count();
 }
