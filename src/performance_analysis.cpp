@@ -46,6 +46,22 @@ std::vector<int> getHardTestBoard9x9() {
     };
 }
 
+// Get a very hard test board with many solutions for better parallel demonstration
+std::vector<int> getVeryHardTestBoard9x9() {
+    // This board has fewer hints to create more branching
+    return {
+        0, 0, 0, 0, 0, 0, 0, 1, 2,
+        0, 0, 0, 0, 3, 5, 0, 0, 0,
+        0, 0, 0, 6, 0, 0, 0, 7, 0,
+        7, 0, 0, 0, 0, 0, 3, 0, 0,
+        0, 0, 0, 4, 0, 0, 8, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 2, 0, 0, 0, 0,
+        0, 8, 0, 0, 0, 0, 0, 4, 0,
+        0, 5, 0, 0, 0, 0, 6, 0, 0
+    };
+}
+
 // Generate performance report
 void generatePerformanceReport() {
     std::vector<PerformanceResult> results;
@@ -61,7 +77,7 @@ void generatePerformanceReport() {
         
         // Get appropriate test board
         if (N == 9) {
-            board = getHardTestBoard9x9();
+            board = getVeryHardTestBoard9x9();  // Use harder test board
         } else {
             std::cerr << "Warning: No test board available for " << N << "x" << N << " board, skipping...\n";
             continue;
