@@ -4,6 +4,28 @@
 #include <vector>
 #include <chrono>
 #include <set>
+#include <cstdint>
+
+// Structure to hold bitmask state for faster validation
+struct BitMaskState {
+    std::vector<uint32_t> rowMask;
+    std::vector<uint32_t> colMask;
+    std::vector<uint32_t> blockMask;
+    
+    BitMaskState(int N);
+    void set(int N, int blockSize, int row, int col, int value);
+    void unset(int N, int blockSize, int row, int col, int value);
+    bool canPlace(int N, int blockSize, int row, int col, int value) const;
+};
+
+// Structure representing a subproblem for parallel execution
+struct Subproblem {
+    std::vector<int> board;
+    BitMaskState state;
+    int startPos;
+    
+    Subproblem(int N) : board(), state(N), startPos(0) {}
+};
 
 class SudokuSolver {
 private:
@@ -24,6 +46,13 @@ private:
     std::set<int> getPossibleValues(int row, int col) const;
     int backtrackSingleThread(int pos);
     int solveFromState(const std::vector<int>& boardRef, int pos);
+    
+    // Optimized methods with bitmask
+    int backtrackWithBitmask(std::vector<int>& boardRef, BitMaskState& state, int pos);
+    int solveSubproblem(const Subproblem& subproblem);
+    void generateSubproblems(int partitionDepth, std::vector<Subproblem>& subproblems);
+    void generateSubproblemsRecursive(Subproblem& current, int depth, int maxDepth, 
+                                     std::vector<Subproblem>& results);
 
 public:
     // Constructor
@@ -35,6 +64,7 @@ public:
     // Solving methods
     void solveSingleThread();
     void solveParallel(int numThreads);
+    void solveParallelOptimized(int numThreads, int partitionDepth);
 
     // Query methods
     int getNumSolutions() const;

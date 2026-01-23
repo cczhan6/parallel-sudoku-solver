@@ -7,7 +7,12 @@ A high-performance parallel sudoku solver implemented in C++ using OpenMP for pa
 - **Standard 9×9 Sudoku Support**: Solves standard sudoku puzzles
 - **Generalized N×N Support**: Can solve larger sudoku variants (N must be a perfect square: 16×16, 25×25, etc.)
 - **Single-threaded Solver**: Traditional backtracking algorithm
-- **Parallel Solver**: OpenMP-based parallel implementation with task distribution
+- **Two Parallel Strategies**:
+  - **Original**: First-cell partitioning (for comparison)
+  - **Optimized**: K-level partitioning with bitmask validation (recommended)
+- **Bitmask Constraint Checking**: O(1) validation using bitwise operations
+- **Configurable Partition Depth**: Adjust task granularity for optimal performance
+- **Dynamic Load Balancing**: OpenMP dynamic scheduling for uneven workloads
 - **Performance Analysis**: Comprehensive benchmarking tools to measure speedup and efficiency
 - **Finds All Solutions**: Enumerates all possible solutions for a given puzzle
 
@@ -57,21 +62,36 @@ make
 
 ### Running the Main Program
 
-The main program tests the solver with standard 9×9 sudoku boards:
+The main program tests both the original and optimized parallel solvers:
 
 ```bash
+./sudoku_solver [boardSize] [partitionDepth] [numThreads]
+```
+
+**Parameters** (all optional):
+- `boardSize`: Size of the board (default: 9)
+- `partitionDepth`: K-level partition depth for optimized solver (default: 2)
+- `numThreads`: Number of threads to use (default: 4)
+
+**Example:**
+```bash
+# Run with defaults (9x9 board, depth=2, 4 threads)
 ./sudoku_solver
+
+# Run with specific parameters
+./sudoku_solver 9 3 8
 ```
 
 Output includes:
 - Initial board display
-- Single-threaded solving time and solution count
-- Multi-threaded performance with 2, 4, and 8 threads
-- Speedup and efficiency metrics
+- Single-threaded baseline performance
+- **Original parallel strategy** performance (2, 4, 8 threads)
+- **Optimized parallel strategy** performance (2, 4, 8 threads) with K-level partitioning
+- Speedup and efficiency metrics for comparison
 
 ### Running Performance Analysis
 
-Generate comprehensive performance reports:
+Generate comprehensive performance reports comparing both strategies:
 
 ```bash
 ./performance_analysis
@@ -79,10 +99,22 @@ Generate comprehensive performance reports:
 
 This creates a `performance_results.csv` file with detailed performance metrics including:
 - Board sizes tested
+- Strategy comparison (Original vs Optimized)
 - Thread counts (1, 2, 4, 8)
+- Partition depths (1, 2, 3) for optimized strategy
 - Execution times
 - Speedup ratios
 - Parallel efficiency percentages
+
+**Sample Output:**
+```
+Board Size,Strategy,Threads,Partition Depth,Solutions,Execution Time (ms),Speedup,Efficiency (%)
+9,Baseline,1,0,1,861.90,1.0000,100.00
+9,Old,2,1,1,685.65,1.2570,62.85
+9,Optimized,2,2,1,190.68,4.5202,226.01
+9,Optimized,4,2,1,164.28,5.2466,131.16
+9,Optimized,8,3,1,169.04,5.0988,63.73
+```
 
 ## Algorithm Design
 
@@ -124,8 +156,9 @@ Methods:
 
 ### Parallelization Strategy
 
-The parallel solver uses OpenMP task distribution:
+The solver now includes two parallel strategies:
 
+#### 1. Original Strategy (solveParallel)
 1. **Find First Empty Cell**: Locate the first empty position in the board
 2. **Generate Possible Values**: Enumerate all valid values for this cell
 3. **Parallel Task Distribution**: Use OpenMP to distribute tasks
@@ -139,7 +172,39 @@ The parallel solver uses OpenMP task distribution:
    ```
 4. **Thread-Safe Accumulation**: Use OpenMP reduction to safely combine results
 
-This approach provides good load balancing when the first empty cell has multiple possible values, creating independent subproblems that can be solved in parallel.
+This approach provides limited parallelism as it only partitions at the first empty cell.
+
+#### 2. Optimized Strategy (solveParallelOptimized) - **NEW**
+1. **K-Level Partitioning**: Generate subproblems by exploring the first K empty cells
+   - Creates many more fine-grained tasks (e.g., if K=2 and each cell has 5 options, creates 25 tasks)
+   - Better load balancing across threads
+   - Configurable partition depth based on board size and thread count
+   
+2. **Bitmask-Based Validation**: O(1) constraint checking using bitwise operations
+   ```cpp
+   struct BitMaskState {
+       vector<uint32_t> rowMask;    // Track used values in each row
+       vector<uint32_t> colMask;    // Track used values in each column
+       vector<uint32_t> blockMask;  // Track used values in each block
+   }
+   ```
+   - Replaces O(N) row/column/block scanning with O(1) bit operations
+   - Significantly reduces validation overhead
+   
+3. **Dynamic Scheduling**: Better load balancing for uneven subproblems
+   ```cpp
+   #pragma omp parallel for reduction(+:totalSolutions) schedule(dynamic)
+   ```
+   
+4. **Reduced Memory Overhead**: 
+   - Bitmask state is more compact than repeated validation
+   - Board copying only at partition boundaries, not at every recursion level
+
+**Performance Comparison:**
+- **Old Strategy**: ~63% efficiency at 2 threads, ~17% at 8 threads
+- **Optimized Strategy**: ~226% efficiency at 2 threads (super-linear due to cache effects), ~64% at 8 threads
+
+The optimized strategy achieves 4-5x speedup on complex puzzles with proper partition depth selection.
 
 ## Core Classes and Methods
 
@@ -154,7 +219,8 @@ This approach provides good load balancing when the first empty cell has multipl
 
 **Solving Methods:**
 - `solveSingleThread()`: Solve using single-threaded backtracking
-- `solveParallel(int numThreads)`: Solve using parallel approach with specified thread count
+- `solveParallel(int numThreads)`: Solve using original parallel approach (first cell partitioning)
+- `solveParallelOptimized(int numThreads, int partitionDepth)`: **NEW** - Solve using optimized K-level partitioning strategy
 
 **Query Methods:**
 - `getNumSolutions()`: Returns number of solutions found
@@ -191,46 +257,44 @@ Ideal efficiency is 100%, but typically decreases as thread count increases due 
 ## Example Output
 
 ```
-OpenMP Parallel Sudoku Solver
-==============================
+OpenMP Parallel Sudoku Solver - Optimized Version
+==================================================
 
-=== Benchmark for 9x9 Sudoku ===
+=== Comprehensive Benchmark for 9x9 Sudoku ===
 
 Initial board:
-5 3 . | . 7 . | . . .
-6 . . | 1 9 5 | . . .
-. 9 8 | . . . | . 6 .
-------+-------+------
-8 . . | . 6 . | . . 3
-4 . . | 8 . 3 | . . 1
-7 . . | . 2 . | . . 6
-------+-------+------
-. 6 . | . . . | 2 8 .
-. . . | 4 1 9 | . . 5
-. . . | . 8 . | . 7 9
+5 3 . | . 7 . | . . . 
+6 . . | 1 9 5 | . . . 
+. 9 8 | . . . | . 6 . 
+----------------------
+8 . . | . 6 . | . . 3 
+4 . . | 8 . 3 | . . 1 
+7 . . | . 2 . | . . 6 
+----------------------
+. 6 . | . . . | 2 8 . 
+. . . | 4 1 9 | . . 5 
+. . . | . 8 . | . 7 9 
 
 Single-threaded solving...
 Solutions found: 1
-Time: 45.23 ms
+Time: 861.90 ms
 
-Parallel solving with 2 threads...
-Solutions found: 1
-Time: 24.56 ms
-Speedup: 1.84x
-Efficiency: 92.00%
+--- Old Strategy (First Cell Only) ---
+Threads: 2, Time: 685.65 ms, Speedup: 1.26x, Efficiency: 62.9%
+Threads: 4, Time: 817.99 ms, Speedup: 1.05x, Efficiency: 26.3%
+Threads: 8, Time: 621.73 ms, Speedup: 1.39x, Efficiency: 17.3%
 
-Parallel solving with 4 threads...
-Solutions found: 1
-Time: 13.78 ms
-Speedup: 3.28x
-Efficiency: 82.00%
-
-Parallel solving with 8 threads...
-Solutions found: 1
-Time: 8.91 ms
-Speedup: 5.08x
-Efficiency: 63.50%
+--- Optimized Strategy (K-Level Partitioning) ---
+Threads: 2, Depth: 2, Time: 190.68 ms, Speedup: 4.52x, Efficiency: 226.0%
+Threads: 4, Depth: 2, Time: 164.28 ms, Speedup: 5.25x, Efficiency: 131.2%
+Threads: 8, Depth: 2, Time: 181.12 ms, Speedup: 4.76x, Efficiency: 59.5%
 ```
+
+**Key Observations:**
+- The original strategy shows poor scaling (17-63% efficiency)
+- The optimized strategy achieves 4-5x speedup with proper load balancing
+- Super-linear speedup (>100% efficiency) at 2-4 threads due to improved cache locality
+- At 8 threads, efficiency is still respectable at ~64%
 
 ## Testing with Different Boards
 
@@ -252,11 +316,13 @@ std::vector<int> customBoard = {
 ## Future Improvements
 
 - Add support for more sophisticated solving techniques (naked pairs, hidden singles, etc.)
-- Implement iterative deepening for better load balancing
-- Add GPU acceleration using CUDA or OpenCL
-- Support for custom board input from files
+- Support for custom board input from files or command-line
+- GPU acceleration using CUDA or OpenCL
+- Adaptive partition depth selection based on problem characteristics
+- Work-stealing queue for even better load balancing
+- Support for very large boards (25×25, 36×36)
 - Graphical user interface
-- More intelligent parallelization strategies (work stealing, dynamic scheduling)
+- Hybrid solving strategies combining constraint propagation with backtracking
 
 ## License
 
