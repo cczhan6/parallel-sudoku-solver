@@ -12,6 +12,10 @@ BitMaskState::BitMaskState(int N) {
 }
 
 void BitMaskState::set(int N, int blockSize, int row, int col, int value) {
+    // Validate value to prevent overflow (max value for uint32_t is 31)
+    if (value < 1 || value > 31) {
+        return;  // Invalid value, skip
+    }
     int blockIdx = (row / blockSize) * blockSize + (col / blockSize);
     rowMask[row] |= (1u << value);
     colMask[col] |= (1u << value);
@@ -19,6 +23,10 @@ void BitMaskState::set(int N, int blockSize, int row, int col, int value) {
 }
 
 void BitMaskState::unset(int N, int blockSize, int row, int col, int value) {
+    // Validate value to prevent overflow
+    if (value < 1 || value > 31) {
+        return;  // Invalid value, skip
+    }
     int blockIdx = (row / blockSize) * blockSize + (col / blockSize);
     rowMask[row] &= ~(1u << value);
     colMask[col] &= ~(1u << value);
@@ -26,6 +34,10 @@ void BitMaskState::unset(int N, int blockSize, int row, int col, int value) {
 }
 
 bool BitMaskState::canPlace(int N, int blockSize, int row, int col, int value) const {
+    // Validate value to prevent overflow
+    if (value < 1 || value > 31) {
+        return false;  // Invalid value
+    }
     int blockIdx = (row / blockSize) * blockSize + (col / blockSize);
     uint32_t mask = (1u << value);
     return !(rowMask[row] & mask) && !(colMask[col] & mask) && !(blockMask[blockIdx] & mask);
@@ -39,6 +51,12 @@ SudokuSolver::SudokuSolver(int N) : N(N), numSolutions(0), runningTime(0.0) {
     if (blockSize * blockSize != N) {
         std::cerr << "Warning: N=" << N << " is not a perfect square. "
                   << "Sudoku constraints may not work correctly." << std::endl;
+    }
+    
+    // Validate that N is within bitmask range (uint32_t supports up to 31)
+    if (N > 31) {
+        std::cerr << "Error: N=" << N << " exceeds maximum supported size of 31 "
+                  << "for bitmask optimization. Please use N <= 25." << std::endl;
     }
     
     board.resize(N * N, 0);
@@ -356,6 +374,9 @@ int SudokuSolver::backtrackWithBitmask(std::vector<int>& boardRef, BitMaskState&
 
 // Solve a subproblem (used by optimized parallel solver)
 int SudokuSolver::solveSubproblem(const Subproblem& subproblem) {
+    // Create copies for thread safety - each thread needs independent state
+    // Note: While this involves copying, it's necessary for parallel correctness
+    // and only happens once per subproblem (not at every recursion level)
     std::vector<int> boardCopy = subproblem.board;
     BitMaskState stateCopy = subproblem.state;
     return backtrackWithBitmask(boardCopy, stateCopy, subproblem.startPos);
